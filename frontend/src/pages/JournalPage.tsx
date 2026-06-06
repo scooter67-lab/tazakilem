@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api";
 import { formatDateTimeInZone } from "../dateFormat";
@@ -12,6 +12,21 @@ export function JournalPage() {
   const [items, setItems] = useState<Journal[]>([]);
   const [detail, setDetail] = useState<DetailState | null>(null);
   const [collapsedShiftIds, setCollapsedShiftIds] = useState<Set<number>>(new Set());
+  const [requestSearch, setRequestSearch] = useState("");
+
+  const searchTrimmed = requestSearch.trim();
+  const isSearching = searchTrimmed.length > 0;
+
+  const displayItems = useMemo(() => {
+    if (!isSearching) return items;
+    const q = searchTrimmed.toLowerCase();
+    return items
+      .map((j) => ({
+        ...j,
+        requests: j.requests.filter((r) => r.request_number.toLowerCase().includes(q))
+      }))
+      .filter((j) => j.requests.length > 0);
+  }, [items, isSearching, searchTrimmed]);
 
   useEffect(() => {
     api
@@ -120,45 +135,69 @@ export function JournalPage() {
   return (
     <div>
       <h2 className="page-title">Журнал</h2>
+      <div className="stats-filters-card journal-search-card">
+        <label className="stats-search-field">
+          <span>Поиск по номеру заявки</span>
+          <input
+            type="search"
+            value={requestSearch}
+            onChange={(e) => setRequestSearch(e.target.value)}
+            placeholder="Например, R1"
+            enterKeyHint="search"
+          />
+        </label>
+        {isSearching ? (
+          <p className="stats-count-hint">
+            {displayItems.length > 0
+              ? `Найдено смен: ${displayItems.length}, заявок: ${displayItems.reduce((n, j) => n + j.requests.length, 0)}`
+              : "Ничего не найдено — проверьте номер заявки."}
+          </p>
+        ) : null}
+      </div>
       {modal}
-      {items.map((j) => (
-        <article key={j.shift_id} className="journal-card">
-          <div className="journal-card-header">
-            <div style={{ fontSize: 16, lineHeight: 1.5 }}>
-              <b>Смена #{j.shift_id}</b> · {j.user}
-              <br />
-              {formatDateTimeInZone(j.date, timezone)}
+      {displayItems.map((j) => {
+        const expanded = isSearching || !collapsedShiftIds.has(j.shift_id);
+        return (
+          <article key={j.shift_id} className="journal-card">
+            <div className="journal-card-header">
+              <div style={{ fontSize: 16, lineHeight: 1.5 }}>
+                <b>Смена #{j.shift_id}</b> · {j.user}
+                <br />
+                {formatDateTimeInZone(j.date, timezone)}
+              </div>
+              {!isSearching ? (
+                <button
+                  type="button"
+                  className="journal-card-toggle-btn"
+                  onClick={() => toggleShift(j.shift_id)}
+                  aria-expanded={expanded}
+                >
+                  {collapsedShiftIds.has(j.shift_id) ? "Развернуть" : "Свернуть"}
+                </button>
+              ) : null}
             </div>
-            <button
-              type="button"
-              className="journal-card-toggle-btn"
-              onClick={() => toggleShift(j.shift_id)}
-              aria-expanded={!collapsedShiftIds.has(j.shift_id)}
-            >
-              {collapsedShiftIds.has(j.shift_id) ? "Развернуть" : "Свернуть"}
-            </button>
-          </div>
-          {collapsedShiftIds.has(j.shift_id) ? null : (
-            <ul className="journal-request-list">
-              {j.requests.map((r) => (
-                <li key={r.id}>
-                  <button
-                    type="button"
-                    className="journal-request-detail-btn"
-                    onClick={() => setDetail({ journal: j, request: r })}
-                  >
-                    {r.request_number} — {r.total_area.toFixed(2)} м², ковров: {r.carpets.length}
-                    <span style={{ display: "block", fontSize: 13, color: "#1565c0", marginTop: 4 }}>
-                      Просмотр деталей
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <b>Итог: {j.total_area.toFixed(2)} м²</b>
-        </article>
-      ))}
+            {expanded ? (
+              <ul className="journal-request-list">
+                {j.requests.map((r) => (
+                  <li key={r.id}>
+                    <button
+                      type="button"
+                      className="journal-request-detail-btn"
+                      onClick={() => setDetail({ journal: j, request: r })}
+                    >
+                      {r.request_number} — {r.total_area.toFixed(2)} м², ковров: {r.carpets.length}
+                      <span style={{ display: "block", fontSize: 13, color: "#1565c0", marginTop: 4 }}>
+                        Просмотр деталей
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <b>Итог: {j.total_area.toFixed(2)} м²</b>
+          </article>
+        );
+      })}
     </div>
   );
 }
